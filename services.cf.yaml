@@ -16,6 +16,8 @@ Parameters:
     Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
   SiteDomain:
     Type: String
+    AllowedPattern: (?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9][a-z0-9-]{0,61}[a-z0-9]
+    Description: Website domain
 Resources:
   TestApCertificate:
     Type: AWS::CertificateManager::Certificate
@@ -57,6 +59,26 @@ Resources:
       AvailabilityZone: ap-northeast-1d
       CidrBlock: 10.11.3.0/24
       VpcId: !Ref TestApVPC
+  TestApEc2LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties: 
+      LaunchTemplateName: sample-launch-template
+      LaunchTemplateData:
+        UserData: !Base64
+          Fn::Join:
+            - "\n"
+            - - "#!/bin/bash"
+              - yum update -y
+              - amazon-linux-extras install -y lamp-mariadb10.2-php7.3 php7.3
+              - yum install -y httpd mariadb-server
+              - systemctl start httpd
+              - systemctl enable httpd
+              - usermod -a -G apache ec2-user
+              - chown -R ec2-user:apache /var/www
+              - chmod 2775 /var/www
+              - find /var/www -type d -exec chmod 2775 {} \;
+              - find /var/www -type f -exec chmod 0664 {} \;
+              - echo "Hello World" > /var/www/html/index.php
   TestApInstanceA:
     Type: AWS::EC2::Instance
     Properties:
@@ -66,8 +88,9 @@ Resources:
       ImageId: !Ref LatestAmiId
       SecurityGroupIds:
         - !GetAtt TestApSG.GroupId
-    Metadata:
-      Comment: Install a simple app
+      LaunchTemplate:
+        LaunchTemplateId: !Ref TestApEc2LaunchTemplate
+        Version: !GetAtt TestApEc2LaunchTemplate.LatestVersionNumber
   TestApInstanceC:
     Type: AWS::EC2::Instance
     Properties:
@@ -77,6 +100,9 @@ Resources:
       ImageId: !Ref LatestAmiId
       SecurityGroupIds:
         - !GetAtt TestApSG.GroupId
+      LaunchTemplate:
+        LaunchTemplateId: !Ref TestApEc2LaunchTemplate
+        Version: !GetAtt TestApEc2LaunchTemplate.LatestVersionNumber
   TestApInstanceD:
     Type: AWS::EC2::Instance
     Properties:
@@ -86,6 +112,9 @@ Resources:
       ImageId: !Ref LatestAmiId
       SecurityGroupIds:
         - !GetAtt TestApSG.GroupId
+      LaunchTemplate:
+        LaunchTemplateId: !Ref TestApEc2LaunchTemplate
+        Version: !GetAtt TestApEc2LaunchTemplate.LatestVersionNumber
   TestApALBTarget:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
