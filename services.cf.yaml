@@ -165,9 +165,3 @@ Outputs:
     Value: !Ref TestApSubnetC
   SubnetD:
     Value: !Ref TestApSubnetD
-  InstanceA:
-    Value: !GetAtt TestApInstanceA.PublicIp
-  InstanceC:
-    Value: !GetAtt TestApInstanceC.PublicIp
-  InstanceD:
-    Value: !GetAtt TestApInstanceD.PublicIp
