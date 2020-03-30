@@ -18,6 +18,7 @@ Parameters:
     Type: String
     AllowedPattern: (?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9][a-z0-9-]{0,61}[a-z0-9]
     Description: Website domain
+
 Resources:
   TestApCertificate:
     Type: AWS::CertificateManager::Certificate
@@ -36,11 +37,69 @@ Resources:
     Properties:
       InternetGatewayId: !Ref TestApIGW
       VpcId: !Ref TestApVPC
+
+  # EIP
+  TestApEIP1:
+    Type: AWS::EC2::EIP
+  AssociateTestEIP1:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt TestApEIP1.AllocationId
+      InstanceId: !Ref TestApInstanceA
+  TestApEIP2:
+    Type: AWS::EC2::EIP
+  AssociateTestEIP2:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt TestApEIP2.AllocationId
+      InstanceId: !Ref TestApInstanceC
+  TestApEIP3:
+    Type: AWS::EC2::EIP
+  AssociateTestEIP3:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt TestApEIP3.AllocationId
+      InstanceId: !Ref TestApInstanceD
+
+  # Security Group
   TestApSG:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: test security group
+      GroupDescription: Target instance Security group
       VpcId: !Ref TestApVPC
+      SecurityGroupIngress:
+        - CidrIp: !GetAtt TestApVPC.CidrBlock
+          IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+        - CidrIp: !GetAtt TestApVPC.CidrBlock
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+        - CidrIp: !GetAtt TestApVPC.CidrBlock
+          IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+        - SourceSecurityGroupId: !Ref TestALBSG
+          IpProtocol: tcp
+          FromPort: 0
+          ToPort: 65535
+  TestALBSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ALB Security group
+      VpcId: !Ref TestApVPC
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+
+  # Subnet
   TestApSubnetA:
     Type: AWS::EC2::Subnet
     Properties:
@@ -59,11 +118,44 @@ Resources:
       AvailabilityZone: ap-northeast-1d
       CidrBlock: 10.11.3.0/24
       VpcId: !Ref TestApVPC
+
+  # Routing
+  TestIGWRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref TestApVPC
+  TestIGWRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref TestIGWRouteTable
+      GatewayId: !Ref TestApIGW
+      DestinationCidrBlock: 0.0.0.0/0
+
+  AssociateTestIGW1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref TestIGWRouteTable
+      SubnetId: !Ref TestApSubnetA
+  AssociateTestIGW2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref TestIGWRouteTable
+      SubnetId: !Ref TestApSubnetC
+  AssociateTestIGW3:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref TestIGWRouteTable
+      SubnetId: !Ref TestApSubnetD
+
+  # EC2 Template
   TestApEc2LaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties: 
       LaunchTemplateName: sample-launch-template
       LaunchTemplateData:
+        ImageId: !Ref LatestAmiId
+        InstanceType: !Ref InstanceType
+        KeyName: !Ref KeyName
         UserData: !Base64
           Fn::Join:
             - "\n"
@@ -79,13 +171,11 @@ Resources:
               - find /var/www -type d -exec chmod 2775 {} \;
               - find /var/www -type f -exec chmod 0664 {} \;
               - echo "Hello World" > /var/www/html/index.php
+
   TestApInstanceA:
     Type: AWS::EC2::Instance
     Properties:
-      InstanceType: !Ref InstanceType
       SubnetId: !Ref TestApSubnetA
-      KeyName: !Ref KeyName
-      ImageId: !Ref LatestAmiId
       SecurityGroupIds:
         - !GetAtt TestApSG.GroupId
       LaunchTemplate:
@@ -94,10 +184,7 @@ Resources:
   TestApInstanceC:
     Type: AWS::EC2::Instance
     Properties:
-      InstanceType: !Ref InstanceType
       SubnetId: !Ref TestApSubnetC
-      KeyName: !Ref KeyName
-      ImageId: !Ref LatestAmiId
       SecurityGroupIds:
         - !GetAtt TestApSG.GroupId
       LaunchTemplate:
@@ -106,22 +193,29 @@ Resources:
   TestApInstanceD:
     Type: AWS::EC2::Instance
     Properties:
-      InstanceType: !Ref InstanceType
       SubnetId: !Ref TestApSubnetD
-      KeyName: !Ref KeyName
-      ImageId: !Ref LatestAmiId
       SecurityGroupIds:
         - !GetAtt TestApSG.GroupId
       LaunchTemplate:
         LaunchTemplateId: !Ref TestApEc2LaunchTemplate
         Version: !GetAtt TestApEc2LaunchTemplate.LatestVersionNumber
+
+  # Application Load Balancing
   TestApALBTarget:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
       Name: test-ap-alb-target
       Port: 80
-      Protocol: HTTPS
+      Protocol: HTTP
       VpcId: !Ref TestApVPC
+      HealthCheckPath: /index.php
+      Targets:
+        - Id: !Ref TestApInstanceA
+          Port: 80
+        - Id: !Ref TestApInstanceC
+          Port: 80
+        - Id: !Ref TestApInstanceD
+          Port: 80
   TestApALBFrontListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
@@ -152,10 +246,16 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
       Name: test-ap-alb
+      LoadBalancerAttributes:
+        - Key: routing.http2.enabled
+          Value: 'false'
+      SecurityGroups:
+        - !Ref TestALBSG
       Subnets:
         - !Ref TestApSubnetA
         - !Ref TestApSubnetC
         - !Ref TestApSubnetD
+
 Outputs:
   VPC:
     Value: !Ref TestApVPC
