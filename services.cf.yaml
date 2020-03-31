@@ -1,5 +1,8 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: ALB arch for testing
+Description: ALB template for testing
+Metadata:
+  Author:
+    Description: xentok
 Parameters:
   KeyName:
     Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
@@ -20,16 +23,21 @@ Parameters:
     Description: Website domain
 
 Resources:
+  # ACM
   TestApCertificate:
     Type: AWS::CertificateManager::Certificate
     Properties: 
       DomainName: !Ref SiteDomain
       ValidationMethod: DNS
+
+  # VPC
   TestApVPC:
     Type: AWS::EC2::VPC
     Properties:
       CidrBlock: 10.11.0.0/20
       EnableDnsHostnames: true
+
+  # Internet Gateway
   TestApIGW:
     Type: AWS::EC2::InternetGateway
   AttachTestApIGW:
@@ -131,6 +139,7 @@ Resources:
       GatewayId: !Ref TestApIGW
       DestinationCidrBlock: 0.0.0.0/0
 
+  # InternetGateway Association
   AssociateTestIGW1:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
@@ -172,33 +181,43 @@ Resources:
               - find /var/www -type f -exec chmod 0664 {} \;
               - echo "Hello World" > /var/www/html/index.php
 
+  # Instances
   TestApInstanceA:
     Type: AWS::EC2::Instance
     Properties:
-      SubnetId: !Ref TestApSubnetA
-      SecurityGroupIds:
-        - !GetAtt TestApSG.GroupId
       LaunchTemplate:
         LaunchTemplateId: !Ref TestApEc2LaunchTemplate
         Version: !GetAtt TestApEc2LaunchTemplate.LatestVersionNumber
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          AssociatePublicIpAddress: true
+          GroupSet:
+            - !GetAtt TestApSG.GroupId
+          SubnetId: !Ref TestApSubnetA
   TestApInstanceC:
     Type: AWS::EC2::Instance
     Properties:
-      SubnetId: !Ref TestApSubnetC
-      SecurityGroupIds:
-        - !GetAtt TestApSG.GroupId
       LaunchTemplate:
         LaunchTemplateId: !Ref TestApEc2LaunchTemplate
         Version: !GetAtt TestApEc2LaunchTemplate.LatestVersionNumber
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          AssociatePublicIpAddress: true
+          GroupSet:
+            - !GetAtt TestApSG.GroupId
+          SubnetId: !Ref TestApSubnetC
   TestApInstanceD:
     Type: AWS::EC2::Instance
     Properties:
-      SubnetId: !Ref TestApSubnetD
-      SecurityGroupIds:
-        - !GetAtt TestApSG.GroupId
       LaunchTemplate:
         LaunchTemplateId: !Ref TestApEc2LaunchTemplate
         Version: !GetAtt TestApEc2LaunchTemplate.LatestVersionNumber
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          AssociatePublicIpAddress: true
+          GroupSet:
+            - !GetAtt TestApSG.GroupId
+          SubnetId: !Ref TestApSubnetD
 
   # Application Load Balancing
   TestApALBTarget:
@@ -257,11 +276,12 @@ Resources:
         - !Ref TestApSubnetD
 
 Outputs:
-  VPC:
-    Value: !Ref TestApVPC
-  SubnetA:
-    Value: !Ref TestApSubnetA
-  SubnetC:
-    Value: !Ref TestApSubnetC
-  SubnetD:
-    Value: !Ref TestApSubnetD
+  PublicIpA:
+    Value: !GetAtt TestApInstanceA.PublicIp
+    Description: Public IP of the instance that AZ is ap-northeast-1a
+  PublicIpC:
+    Value: !GetAtt TestApInstanceC.PublicIp
+    Description: Public IP of the instance that AZ is ap-northeast-1c
+  PublicIpD:
+    Value: !GetAtt TestApInstanceD.PublicIp
+    Description: Public IP of the instance that AZ is ap-northeast-1d
