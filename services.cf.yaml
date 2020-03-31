@@ -46,29 +46,6 @@ Resources:
       InternetGatewayId: !Ref TestApIGW
       VpcId: !Ref TestApVPC
 
-  # EIP
-  TestApEIP1:
-    Type: AWS::EC2::EIP
-  AssociateTestEIP1:
-    Type: AWS::EC2::EIPAssociation
-    Properties:
-      AllocationId: !GetAtt TestApEIP1.AllocationId
-      InstanceId: !Ref TestApInstanceA
-  TestApEIP2:
-    Type: AWS::EC2::EIP
-  AssociateTestEIP2:
-    Type: AWS::EC2::EIPAssociation
-    Properties:
-      AllocationId: !GetAtt TestApEIP2.AllocationId
-      InstanceId: !Ref TestApInstanceC
-  TestApEIP3:
-    Type: AWS::EC2::EIP
-  AssociateTestEIP3:
-    Type: AWS::EC2::EIPAssociation
-    Properties:
-      AllocationId: !GetAtt TestApEIP3.AllocationId
-      InstanceId: !Ref TestApInstanceD
-
   # Security Group
   TestApSG:
     Type: AWS::EC2::SecurityGroup
@@ -92,6 +69,7 @@ Resources:
           IpProtocol: tcp
           FromPort: 0
           ToPort: 65535
+  ## ALB Security Group
   TestALBSG:
     Type: AWS::EC2::SecurityGroup
     Properties:
