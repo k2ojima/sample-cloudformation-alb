@@ -8,6 +8,11 @@ AWS CLI
 ### Create stack
 
 ```bash
-$ aws cloudformation create-stack --stack-name test-stack --region ap-northeast-1 --template-body file://services.cf.yaml \
---parameters ParameterKey=SiteDomain,ParameterValue=example.com
+$ aws cloudformation create-stack --stack-name CoreApStack --region ap-northeast-1 --capabilities CAPABILITY_IAM \
+--template-body file://cloudformation/lamp-amazonlinux2/core.cf.yaml \
+--parameters ParameterKey=SiteDomain,ParameterValue=example.com \
+&& aws cloudformation create-stack --stack-name Ec2ApStack --region ap-northeast-1 --capabilities CAPABILITY_IAM \
+--template-body file://cloudformation/lamp-amazonlinux2/ec2.cf.yaml \
+--parameters '[{"ParameterKey": "EnvType", "ParameterValue": "test"},
+	{"ParameterKey": "DbRootPassword", "ParameterValue": "passw0rd"}]'
 ```

@@ -1,0 +1,219 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: ALB template for testing
+Metadata:
+  Author:
+    Description: xentok
+Parameters:
+  SiteDomain:
+    Type: String
+    AllowedPattern: (?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9][a-z0-9-]{0,61}[a-z0-9]
+    Description: Website domain
+
+Resources:
+  # ACM
+  ApCertificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Ref SiteDomain
+      ValidationMethod: DNS
+
+  # VPC
+  ApVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.11.0.0/20
+      EnableDnsHostnames: true      
+
+  # Internet Gateway
+  ApIGW:
+    Type: AWS::EC2::InternetGateway
+  AttachApIGW:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref ApIGW
+      VpcId: !Ref ApVPC
+
+  # IAM Role
+  ApInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: 
+              Service: 
+                - ec2.amazonaws.com
+            Action: 
+              - sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogStreams
+                Resource: arn:aws:logs:*:*:*
+          PolicyName: !Sub ${AWS::StackName}-Logging
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+  # Security Group
+  ApSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Target instance Security group
+      VpcId: !Ref ApVPC
+      SecurityGroupIngress:
+        - CidrIp: !GetAtt ApVPC.CidrBlock
+          IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+        - CidrIp: !GetAtt ApVPC.CidrBlock
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+        - CidrIp: !GetAtt ApVPC.CidrBlock
+          IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+        - SourceSecurityGroupId: !Ref ALBSG
+          IpProtocol: tcp
+          FromPort: 0
+          ToPort: 65535
+  ## ALB Security Group
+  ALBSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ALB Security group
+      VpcId: !Ref ApVPC
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+
+  # Subnet
+  ApSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1a
+      CidrBlock: 10.11.1.0/24
+      VpcId: !Ref ApVPC
+  ApSubnetC:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1c
+      CidrBlock: 10.11.2.0/24
+      VpcId: !Ref ApVPC
+  ApSubnetD:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1d
+      CidrBlock: 10.11.3.0/24
+      VpcId: !Ref ApVPC
+
+  # Routing
+  IGWRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref ApVPC
+  IGWRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref IGWRouteTable
+      GatewayId: !Ref ApIGW
+      DestinationCidrBlock: 0.0.0.0/0
+
+  # InternetGateway Association
+  AssociateIGW1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref IGWRouteTable
+      SubnetId: !Ref ApSubnetA
+  AssociateIGW2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref IGWRouteTable
+      SubnetId: !Ref ApSubnetC
+  AssociateIGW3:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref IGWRouteTable
+      SubnetId: !Ref ApSubnetD
+
+  # CloudWatch Logs
+  ApLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: ap-group-test
+      RetentionInDays: 7
+  ApLogStream:
+    Type: AWS::Logs::LogStream
+    Properties:
+      LogGroupName: !Ref ApLogGroup
+      LogStreamName: /var/log/httpd/error_log
+  ApCFNLogStream:
+    Type: AWS::Logs::LogStream
+    Properties:
+      LogGroupName: !Ref ApLogGroup
+      LogStreamName: /var/log/cloud-init-output.log
+
+  # Instance profile
+  ApInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref ApInstanceRole
+    DependsOn: ApInstanceRole
+
+Outputs:
+  VpcIdOutput:
+    Value: !Ref ApVPC
+    Export:
+      Name: !Sub "${AWS::StackName}-VPC"
+  SubnetOutput1:
+    Value: !Ref ApSubnetA
+    Export:
+      Name: !Sub "${AWS::StackName}-SubnetA"
+  SubnetOutput2:
+    Value: !Ref ApSubnetC
+    Export:
+      Name: !Sub "${AWS::StackName}-SubnetC"
+  SubnetOutput3:
+    Value: !Ref ApSubnetD
+    Export:
+      Name: !Sub "${AWS::StackName}-SubnetD"
+  ApSGIDOutput:
+    Value: !GetAtt ApSG.GroupId
+    Export:
+      Name: !Sub "${AWS::StackName}-ApSGID"
+  ALBSGOutput:
+    Value: !Ref ALBSG
+    Export:
+      Name: !Sub "${AWS::StackName}-ALBSG"
+  AcmOutput:
+    Value: !Ref ApCertificate
+    Export:
+      Name: !Sub "${AWS::StackName}-ACM"
+  ApInstanceRoleOutput:
+    Value: !Ref ApInstanceRole
+    Export:
+      Name: !Sub "${AWS::StackName}-ApInstanceRole"
+  ApLogGroupOutput:
+    Value: !Ref ApLogGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-ApLogGroup"
+  ApInstanceProfileOutput:
+    Value: !Ref ApInstanceProfile
+    Export:
+      Name: !Sub "${AWS::StackName}-ApInstanceProfile"

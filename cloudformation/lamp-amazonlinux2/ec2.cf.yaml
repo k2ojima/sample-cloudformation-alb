@@ -1,0 +1,224 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: EC2 definition of ALB template
+Metadata:
+  Author:
+    Description: xentok
+
+Parameters:
+  EnvType:
+    Description: Environment where the stacks are applied.
+    Type: String
+    Default: test
+    AllowedValues: [test, stage, prod]
+    ConstraintDescription: must be one of test, stage, prod
+  CoreStack:
+    Type: String
+    Default: CoreApStack
+  KeyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: test-web
+    ConstraintDescription: must be the name of an existing EC2 KeyPair.
+  InstanceType:
+    Description: WebServer EC2 instance type
+    Type: String
+    Default: t2.micro
+    AllowedValues: [t2.nano, t2.micro, t2.small, t2.medium, t2.large, t2.xlarge, t2.2xlarge,
+          t3.nano, t3.micro, t3.small, t3.medium, t3.large, t3.xlarge, t3.2xlarge,
+          m4.large, m4.xlarge, m4.2xlarge, m4.4xlarge, m4.10xlarge,
+          m5.large, m5.xlarge, m5.2xlarge, m5.4xlarge,
+          c5.large, c5.xlarge, c5.2xlarge, c5.4xlarge, c5.9xlarge,
+          g3.8xlarge,
+          r5.large, r5.xlarge, r5.2xlarge, r5.4xlarge, r3.12xlarge,
+          i3.xlarge, i3.2xlarge, i3.4xlarge, i3.8xlarge,
+          d2.xlarge, d2.2xlarge, d2.4xlarge, d2.8xlarge]
+    ConstraintDescription: must be a valid EC2 instance type.
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+  DbRootPassword:
+    Type: String
+    Description: DB root password (8-32 alphanumerics)
+    MinLength: '8'
+    MaxLength: '32'
+    AllowedPattern: "[a-zA-Z][a-zA-Z0-9]*"
+
+Conditions:
+  UseProdEnv:
+    !Equals [!Ref EnvType, prod]
+
+Resources:
+  # EC2 Template
+  ApEc2LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: sample-launch-template
+      LaunchTemplateData:
+        ImageId: !Ref LatestAmiId
+        InstanceType: !Ref InstanceType
+        KeyName: !Ref KeyName
+        UserData:
+          Fn::Base64:
+            Fn::Sub: |
+              #!/bin/bash -xe
+              exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+
+              HOMEDIR=/home/ec2-user
+
+              timedatectl set-timezone Asia/Tokyo
+              yum update -y
+              amazon-linux-extras install lamp-mariadb10.2-php7.2
+              sudo yum install -y \
+                httpd \
+                mariadb-server \
+                php \
+                php-gd \
+                php-mbstring \
+                php-mysqlnd \
+                php-xml \
+                php-xmlrpc \
+                https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/linux_amd64/amazon-ssm-agent.rpm
+
+              # Configure Database
+              MYSQL_ROOT_PASSWORD=${DbRootPassword}
+              echo $MYSQL_ROOT_PASSWORD > $HOMEDIR/MYSQL_ROOT_PASSWORD
+              chown ec2-user $HOMEDIR/MYSQL_ROOT_PASSWORD
+              sudo systemctl start mariadb
+              sudo systemctl enable mariadb
+              mysql -u root <<EOF
+              UPDATE mysql.user SET Password=PASSWORD('$MYSQL_ROOT_PASSWORD') WHERE User='root';
+              DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
+              DELETE FROM mysql.user WHERE User='';
+              DROP DATABASE IF EXISTS test;
+              FLUSH PRIVILEGES;
+              EOF
+
+              # Configure Apache
+              sudo systemctl start httpd
+              sudo systemctl enable httpd
+              sudo usermod -a -G apache ec2-user
+              sudo chown -R ec2-user:apache /var/www
+              sudo chmod 2775 /var/www
+              find /var/www -type d -exec chmod 2775 {} \;
+              find /var/www -type f -exec chmod 0664 {} \;
+              echo "Hello World" > /var/www/html/index.php
+
+  # Instances
+  ApInstanceA:
+    Type: AWS::EC2::Instance
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref ApEc2LaunchTemplate
+        Version: !GetAtt ApEc2LaunchTemplate.LatestVersionNumber
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          AssociatePublicIpAddress: true
+          GroupSet:
+            - Fn::ImportValue: !Sub ${CoreStack}-ApSGID
+          SubnetId:
+            Fn::ImportValue: !Sub ${CoreStack}-SubnetA
+      IamInstanceProfile:
+        Fn::ImportValue: !Sub ${CoreStack}-ApInstanceProfile
+  ApInstanceC:
+    Type: AWS::EC2::Instance
+    Condition: UseProdEnv
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref ApEc2LaunchTemplate
+        Version: !GetAtt ApEc2LaunchTemplate.LatestVersionNumber
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          AssociatePublicIpAddress: true
+          GroupSet:
+            - Fn::ImportValue: !Sub ${CoreStack}-ApSGID
+          SubnetId:
+            Fn::ImportValue: !Sub ${CoreStack}-SubnetC
+      IamInstanceProfile:
+        Fn::ImportValue: !Sub ${CoreStack}-ApInstanceProfile
+  ApInstanceD:
+    Type: AWS::EC2::Instance
+    Condition: UseProdEnv
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref ApEc2LaunchTemplate
+        Version: !GetAtt ApEc2LaunchTemplate.LatestVersionNumber
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          AssociatePublicIpAddress: true
+          GroupSet:
+            - Fn::ImportValue: !Sub ${CoreStack}-ApSGID
+          SubnetId:
+            Fn::ImportValue: !Sub ${CoreStack}-SubnetD
+      IamInstanceProfile:
+        Fn::ImportValue: !Sub ${CoreStack}-ApInstanceProfile
+
+  # Application Load Balancing
+  ApALBTarget:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: ApALBTarget
+      Port: 80
+      Protocol: HTTP
+      VpcId:
+        Fn::ImportValue: !Sub ${CoreStack}-VPC
+      HealthCheckPath: /index.php
+      Targets: !If [UseProdEnv, [
+            {Id: !Ref ApInstanceA, Port: 80},
+            {Id: !Ref ApInstanceC, Port: 80},
+            {Id: !Ref ApInstanceD, Port: 80}
+          ],
+          [{Id: !Ref ApInstanceA, Port: 80}]
+        ]
+  ApALBFrontListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: redirect
+          RedirectConfig:
+            Host: '#{host}'
+            Path: '/#{path}'
+            Port: '443'
+            Protocol: HTTPS
+            Query: '#{query}'
+            StatusCode: HTTP_301
+      LoadBalancerArn: !Ref ApALB
+      Port: 80
+      Protocol: HTTP
+  ApALBSSListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ApALBTarget
+      Certificates:
+        - CertificateArn:
+            Fn::ImportValue: !Sub ${CoreStack}-ACM
+      LoadBalancerArn: !Ref ApALB
+      Port: 443
+      Protocol: HTTPS
+  ApALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: ap-alb-test
+      LoadBalancerAttributes:
+        - Key: routing.http2.enabled
+          Value: 'false'
+      SecurityGroups:
+        - Fn::ImportValue: !Sub ${CoreStack}-ALBSG
+      Subnets:
+        - Fn::ImportValue: !Sub ${CoreStack}-SubnetA
+        - Fn::ImportValue: !Sub ${CoreStack}-SubnetC
+        - Fn::ImportValue: !Sub ${CoreStack}-SubnetD
+
+Outputs:
+  PublicIpA:
+    Value: !GetAtt ApInstanceA.PublicIp
+    Description: Public IP of the instance that AZ is ap-northeast-1a
+  PublicIpC:
+    Value: !GetAtt ApInstanceC.PublicIp
+    Description: Public IP of the instance that AZ is ap-northeast-1c
+    Condition: UseProdEnv
+  PublicIpD:
+    Value: !GetAtt ApInstanceD.PublicIp
+    Description: Public IP of the instance that AZ is ap-northeast-1d
+    Condition: UseProdEnv
