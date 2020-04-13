@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: ALB template for testing
+Description: Network, SecurityGroup, ACM, IAM settings for ALB template
 Metadata:
   Author:
     Description: xentok
@@ -150,23 +150,6 @@ Resources:
     Properties:
       RouteTableId: !Ref IGWRouteTable
       SubnetId: !Ref ApSubnetD
-
-  # CloudWatch Logs
-  ApLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: ap-group-test
-      RetentionInDays: 7
-  ApLogStream:
-    Type: AWS::Logs::LogStream
-    Properties:
-      LogGroupName: !Ref ApLogGroup
-      LogStreamName: /var/log/httpd/error_log
-  ApCFNLogStream:
-    Type: AWS::Logs::LogStream
-    Properties:
-      LogGroupName: !Ref ApLogGroup
-      LogStreamName: /var/log/cloud-init-output.log
 
   # Instance profile
   ApInstanceProfile:

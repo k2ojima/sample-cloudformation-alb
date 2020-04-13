@@ -11,9 +11,16 @@ Parameters:
     Default: test
     AllowedValues: [test, stage, prod]
     ConstraintDescription: must be one of test, stage, prod
+  # stack names
   CoreStack:
+    Description: The core stack name.
     Type: String
     Default: CoreApStack
+  CWStack:
+    Description: The cloudwatch stack name.
+    Type: String
+    Default: CWApStack
+
   KeyName:
     Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
     Type: AWS::EC2::KeyPair::KeyName
@@ -59,49 +66,55 @@ Resources:
         KeyName: !Ref KeyName
         UserData:
           Fn::Base64:
-            Fn::Sub: |
-              #!/bin/bash -xe
-              exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+            Fn::Sub:
+              - |
+                #!/bin/bash -xe
+                exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
 
-              HOMEDIR=/home/ec2-user
+                HOMEDIR=/home/ec2-user
 
-              timedatectl set-timezone Asia/Tokyo
-              yum update -y
-              amazon-linux-extras install lamp-mariadb10.2-php7.2
-              sudo yum install -y \
-                httpd \
-                mariadb-server \
-                php \
-                php-gd \
-                php-mbstring \
-                php-mysqlnd \
-                php-xml \
-                php-xmlrpc \
-                https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/linux_amd64/amazon-ssm-agent.rpm
+                timedatectl set-timezone Asia/Tokyo
+                yum update -y
+                amazon-linux-extras install lamp-mariadb10.2-php7.2
+                sudo yum install -y \
+                  httpd \
+                  mariadb-server \
+                  php \
+                  php-gd \
+                  php-mbstring \
+                  php-mysqlnd \
+                  php-xml \
+                  php-xmlrpc
+                sudo rpm -Uvh https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm
 
-              # Configure Database
-              MYSQL_ROOT_PASSWORD=${DbRootPassword}
-              echo $MYSQL_ROOT_PASSWORD > $HOMEDIR/MYSQL_ROOT_PASSWORD
-              chown ec2-user $HOMEDIR/MYSQL_ROOT_PASSWORD
-              sudo systemctl start mariadb
-              sudo systemctl enable mariadb
-              mysql -u root <<EOF
-              UPDATE mysql.user SET Password=PASSWORD('$MYSQL_ROOT_PASSWORD') WHERE User='root';
-              DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
-              DELETE FROM mysql.user WHERE User='';
-              DROP DATABASE IF EXISTS test;
-              FLUSH PRIVILEGES;
-              EOF
+                /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a stop
+                /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c ssm:${CWAgentParameter} -s
 
-              # Configure Apache
-              sudo systemctl start httpd
-              sudo systemctl enable httpd
-              sudo usermod -a -G apache ec2-user
-              sudo chown -R ec2-user:apache /var/www
-              sudo chmod 2775 /var/www
-              find /var/www -type d -exec chmod 2775 {} \;
-              find /var/www -type f -exec chmod 0664 {} \;
-              echo "Hello World" > /var/www/html/index.php
+                # Configure Database
+                MYSQL_ROOT_PASSWORD=${DbRootPassword}
+                echo $MYSQL_ROOT_PASSWORD > $HOMEDIR/MYSQL_ROOT_PASSWORD
+                chown ec2-user $HOMEDIR/MYSQL_ROOT_PASSWORD
+                sudo systemctl start mariadb
+                sudo systemctl enable mariadb
+                mysql -u root <<EOF
+                UPDATE mysql.user SET Password=PASSWORD('$MYSQL_ROOT_PASSWORD') WHERE User='root';
+                DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
+                DELETE FROM mysql.user WHERE User='';
+                DROP DATABASE IF EXISTS test;
+                FLUSH PRIVILEGES;
+                EOF
+
+                # Configure Apache
+                sudo systemctl start httpd
+                sudo systemctl enable httpd
+                sudo usermod -a -G apache ec2-user
+                sudo chown -R ec2-user:apache /var/www
+                sudo chmod 2775 /var/www
+                find /var/www -type d -exec chmod 2775 {} \;
+                find /var/www -type f -exec chmod 0664 {} \;
+                echo "Hello World" > /var/www/html/index.php
+              - CWAgentParameter:
+                  Fn::ImportValue: !Sub ${CWStack}-CWAgentConfig
 
   # Instances
   ApInstanceA:

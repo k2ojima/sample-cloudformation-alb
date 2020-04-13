@@ -1,0 +1,117 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudWatch settings for ALB template
+Metadata:
+  Author:
+    Description: xentok
+
+Parameters:
+  EnvType:
+    Description: Environment where the stacks are applied.
+    Type: String
+    Default: test
+    AllowedValues: [test, stage, prod]
+    ConstraintDescription: must be one of test, stage, prod
+
+Resources:
+  # CloudWatch Logs
+  ApLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub ${AWS::StackName}-${EnvType}
+      RetentionInDays: 7
+
+  # CloudWatch SSM Parameter
+  CWAgentConfig:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub AmazonCloudWatch-${AWS::StackName}-config-${EnvType}
+      Type: String
+      Value: !Sub |
+        {
+          "logs": {
+            "logs_collected": {
+              "files": {
+                "collect_list": [
+                  {
+                    "file_path": "/var/log/messages",
+                    "log_group_name": "${ApLogGroup}"
+                  },
+                  {
+                    "file_path": "/var/log/secure",
+                    "log_group_name": "${ApLogGroup}"
+                  },
+                  {
+                    "file_path": "/var/log/cloud-init-output.log",
+                    "log_group_name": "${ApLogGroup}"
+                  },
+                  {
+                    "file_path": "/var/log/amazon/ssm/amazon-ssm-agent.log",
+                    "log_group_name": "${ApLogGroup}"
+                  },
+                  {
+                    "file_path": "/var/log/httpd/error_log",
+                    "log_group_name": "${ApLogGroup}"
+                  }
+                ]
+              }
+            }
+          },
+          "metrics": {
+            "append_dimensions": {
+              "ImageId": "${!aws:ImageId}",
+              "InstanceId": "${!aws:InstanceId}",
+              "InstanceType": "${!aws:InstanceType}"
+            },
+            "metrics_collected": {
+              "mem": {
+                "measurement": [
+                  "mem_used_percent"
+                ],
+                "metrics_collection_interval": 60
+              },
+              "cpu": {
+                "measurement": [
+                  {"name": "cpu_usage_idle", "unit": "Percent"},
+                  {"name": "cpu_usage_nice", "unit": "Percent"}
+                ],
+                "metrics_collection_interval": 60
+              },
+              "processes": {
+                "measurement": [
+                  "total"
+                ],
+                "metrics_collection_interval": 60
+              },
+              "netstat": {
+                "measurement": [
+                  "tcp_established"
+                ],
+                "metrics_collection_interval": 60
+              },
+              "disk": {
+                "measurement": [
+                  "used_percent"
+                ],
+                "resources": [
+                  "/"
+                ],
+                "ignore_file_system_types": [
+                  "xfs"
+                ],
+                "metrics_collection_interval": 300
+              },
+              "swap": {
+                "measurement": [
+                  "swap_used_percent"
+                ],
+                "metrics_collection_interval": 300
+              }
+            }
+          }
+        }
+
+Outputs:
+  CWSSMParameter:
+    Value: !Ref CWAgentConfig
+    Export:
+      Name: !Sub "${AWS::StackName}-CWAgentConfig"
