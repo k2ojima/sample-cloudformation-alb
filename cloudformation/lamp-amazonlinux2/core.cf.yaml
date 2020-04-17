@@ -22,7 +22,7 @@ Resources:
     Type: AWS::EC2::VPC
     Properties:
       CidrBlock: 10.11.0.0/20
-      EnableDnsHostnames: true      
+      EnableDnsHostnames: true
 
   # Internet Gateway
   ApIGW:
@@ -192,10 +192,6 @@ Outputs:
     Value: !Ref ApInstanceRole
     Export:
       Name: !Sub "${AWS::StackName}-ApInstanceRole"
-  ApLogGroupOutput:
-    Value: !Ref ApLogGroup
-    Export:
-      Name: !Sub "${AWS::StackName}-ApLogGroup"
   ApInstanceProfileOutput:
     Value: !Ref ApInstanceProfile
     Export:
