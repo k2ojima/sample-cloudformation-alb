@@ -28,5 +28,6 @@ aws cloudformation create-stack --stack-name DeployStack --region ap-northeast-1
 	ParameterKey=GitHubOwner,ParameterValue=owner \
 	ParameterKey=GitHubRepo,ParameterValue=sample-code \
 	ParameterKey=GitHubBranch,ParameterValue=staging \
-	ParameterKey=GitHubToken,ParameterValue=your_token
+	ParameterKey=GitHubOAuthToken,ParameterValue=your_token \
+	ParameterKey=GitHubSecretToken,ParameterValue=your_token
 ```

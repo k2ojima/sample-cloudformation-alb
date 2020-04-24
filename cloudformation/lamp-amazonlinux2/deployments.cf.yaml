@@ -27,8 +27,11 @@ Parameters:
   GitHubBranch:
     Description: The branch of target
     Type: String
-  GitHubToken:
+  GitHubOAuthToken:
     Description: GitHub OAuth token.
+    Type: String
+  GitHubSecretToken:
+    Description: GitHub secret token for Webhook.
     Type: String
 
 Resources:
@@ -115,7 +118,7 @@ Resources:
     Properties:
       Authentication: GITHUB_HMAC
       AuthenticationConfiguration:
-        SecretToken: ref GitHubSecretToken
+        SecretToken: !Ref GitHubSecretToken
       Filters:
         - JsonPath: $.ref
           MatchEquals: refs/heads/master
@@ -143,7 +146,7 @@ Resources:
                 Owner: !Ref GitHubOwner
                 Repo: !Ref GitHubRepo
                 Branch: !Ref GitHubBranch
-                OAuthToken: !Ref GitHubToken
+                OAuthToken: !Ref GitHubOAuthToken
               OutputArtifacts:
                 - Name: !Sub ${AWS::StackName}-Source
         - Name: !Sub ${AWS::StackName}-DeployStage
