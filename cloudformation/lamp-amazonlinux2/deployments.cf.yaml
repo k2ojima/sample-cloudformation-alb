@@ -1,0 +1,161 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Deployments setting of ALB template
+Metadata:
+  Author:
+    Description: xentok
+
+Parameters:
+  EnvType:
+    Description: Environment where the stacks are applied.
+    Type: String
+    Default: test
+    AllowedValues: [test, stage, prod]
+    ConstraintDescription: must be one of test, stage, prod
+  ArtifactBucketName:
+    Description: Name of S3 Bucket for artifact
+    Type: String
+    ConstraintDescription: |
+      Parameter must be at least 3 and no more than 63 characters long.
+      must not contain uppercase characters or underscores.
+    AllowedPattern: "[a-z0-9-]{3,63}"
+  GitHubOwner:
+    Description: GitHub repository owner.
+    Type: String
+  GitHubRepo:
+    Description: GitHub repository name.
+    Type: String
+  GitHubBranch:
+    Description: The branch of target
+    Type: String
+  GitHubToken:
+    Description: GitHub OAuth token.
+    Type: String
+
+Resources:
+  # CodePipelinePolicy
+  CodePipelinePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub ${AWS::StackName}-${AWS::Region}-PipelinePolicy
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - codedeploy:CreateDeployment
+              - codedeploy:GetApplicationRevision
+              - codedeploy:GetDeployment
+              - codedeploy:GetDeploymentConfig
+              - codedeploy:RegisterApplicationRevision
+            Resource: "*"
+
+  # CodeDeploy ServiceRole
+  CodeDeployServerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codedeploy.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+  # Pipeline ServiceRole
+  CodePipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codepipeline.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - !Ref CodePipelinePolicy
+
+  # S3 Bucket
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      AccessControl: Private
+      BucketName: !Ref ArtifactBucketName
+
+  # CodeDeploy App
+  DeployServerApp:
+    Type: AWS::CodeDeploy::Application
+    Properties:
+      ApplicationName: !Sub ${AWS::StackName}-App-${EnvType}
+      ComputePlatform: Server
+  # CodeDeploy Group
+  DeployEC2Group:
+    Type: AWS::CodeDeploy::DeploymentGroup
+    Properties:
+      ApplicationName: !Ref DeployServerApp
+      DeploymentGroupName: !Sub ${AWS::StackName}-DeployGrp-${EnvType}
+      ServiceRoleArn: !GetAtt CodeDeployServerRole.Arn
+      Ec2TagFilters:
+        - Type: KEY_AND_VALUE
+          Key: aws:cloudformation:stack-name
+          Value: Ec2ApStack
+
+  # CodePipeline Webhook
+  PipelineDeployWebhook:
+    Type: AWS::CodePipeline::Webhook
+    Properties:
+      Authentication: GITHUB_HMAC
+      AuthenticationConfiguration:
+        SecretToken: ref GitHubSecretToken
+      Filters:
+        - JsonPath: $.ref
+          MatchEquals: refs/heads/master
+      TargetAction: !Sub ${AWS::StackName}-SourceAction
+      TargetPipeline: !Ref DeployServerPipeline
+      TargetPipelineVersion: !GetAtt DeployServerPipeline.Version
+  # CodePipeline
+  DeployServerPipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      RoleArn: !GetAtt CodePipelineRole.Arn
+      ArtifactStore:
+        Location: !Ref ArtifactBucket
+        Type: S3
+      Stages:
+        - Name: !Sub ${AWS::StackName}-SourceStage
+          Actions:
+            - Name: !Sub ${AWS::StackName}-SourceAction
+              ActionTypeId:
+                Category: Source
+                Owner: ThirdParty
+                Provider: GitHub
+                Version: "1"
+              Configuration:
+                Owner: !Ref GitHubOwner
+                Repo: !Ref GitHubRepo
+                Branch: !Ref GitHubBranch
+                OAuthToken: !Ref GitHubToken
+              OutputArtifacts:
+                - Name: !Sub ${AWS::StackName}-Source
+        - Name: !Sub ${AWS::StackName}-DeployStage
+          Actions:
+            - Name: !Sub ${AWS::StackName}-DeployAction
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CodeDeploy
+                Version: "1"
+              Configuration:
+                ApplicationName: !Ref DeployServerApp
+                DeploymentGroupName: !Ref DeployEC2Group
+              InputArtifacts:
+                - Name: !Sub ${AWS::StackName}-Source
