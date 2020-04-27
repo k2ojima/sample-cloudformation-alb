@@ -11,6 +11,10 @@ Parameters:
     Default: test
     AllowedValues: [test, stage, prod]
     ConstraintDescription: must be one of test, stage, prod
+  WebsiteDocumentRoot:
+    Description: The website's document root.
+    Type: String
+    Default: /var/www/html/public
   # stack names
   CoreStack:
     Description: The core stack name.
@@ -126,7 +130,7 @@ Resources:
                 sudo chmod 2775 /var/www
                 find /var/www -type d -exec chmod 2775 {} \;
                 find /var/www -type f -exec chmod 0664 {} \;
-                echo "Hello World" > /var/www/html/index.php
+                sed -i -e 's@DocumentRoot "/var/www/html"@DocumentRoot "${WebsiteDocumentRoot}"@' /etc/httpd/conf/httpd.conf
 
                 # Setup Composer
                 ## Make swapfile
