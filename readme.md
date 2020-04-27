@@ -17,6 +17,7 @@ aws cloudformation create-stack --stack-name CWApStack --region ap-northeast-1 \
 --parameters ParameterKey=EnvType,ParameterValue=test
 && \
 aws cloudformation create-stack --stack-name Ec2ApStack --region ap-northeast-1 \
+--capabilities CAPABILITY_NAMED_IAM \
 --template-body file://cloudformation/lamp-amazonlinux2/ec2.cf.yaml \
 --parameters ParameterKey=EnvType,ParameterValue=test \
 	ParameterKey=DbRootPassword,ParameterValue=passw0rd

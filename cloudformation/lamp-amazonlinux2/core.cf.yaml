@@ -33,36 +33,6 @@ Resources:
       InternetGatewayId: !Ref ApIGW
       VpcId: !Ref ApVPC
 
-  # IAM Role
-  ApInstanceRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal: 
-              Service: 
-                - ec2.amazonaws.com
-            Action: 
-              - sts:AssumeRole
-      Path: /
-      Policies:
-        - PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - logs:CreateLogGroup
-                  - logs:CreateLogStream
-                  - logs:PutLogEvents
-                  - logs:DescribeLogStreams
-                Resource: arn:aws:logs:*:*:*
-          PolicyName: !Sub ${AWS::StackName}-Logging
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
-        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
-
   # Security Group
   ApSG:
     Type: AWS::EC2::SecurityGroup
@@ -151,14 +121,6 @@ Resources:
       RouteTableId: !Ref IGWRouteTable
       SubnetId: !Ref ApSubnetD
 
-  # Instance profile
-  ApInstanceProfile:
-    Type: AWS::IAM::InstanceProfile
-    Properties:
-      Roles:
-        - !Ref ApInstanceRole
-    DependsOn: ApInstanceRole
-
 Outputs:
   VpcIdOutput:
     Value: !Ref ApVPC
@@ -188,11 +150,3 @@ Outputs:
     Value: !Ref ApCertificate
     Export:
       Name: !Sub "${AWS::StackName}-ACM"
-  ApInstanceRoleOutput:
-    Value: !Ref ApInstanceRole
-    Export:
-      Name: !Sub "${AWS::StackName}-ApInstanceRole"
-  ApInstanceProfileOutput:
-    Value: !Ref ApInstanceProfile
-    Export:
-      Name: !Sub "${AWS::StackName}-ApInstanceProfile"

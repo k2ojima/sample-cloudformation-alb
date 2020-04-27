@@ -59,6 +59,50 @@ Conditions:
     !Equals [!Ref EnvType, prod]
 
 Resources:
+  # IAM Policy
+  LoggingPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub ${AWS::StackName}-${AWS::Region}-Logging
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+              - logs:DescribeLogStreams
+            Resource: arn:aws:logs:*:*:*
+
+  # IAM Role
+  ApInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: 
+              Service: 
+                - ec2.amazonaws.com
+            Action: 
+              - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - !Ref LoggingPolicy
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+
+  # Instance profile
+  ApInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref ApInstanceRole
+    DependsOn: ApInstanceRole
+
   # EC2 Template
   ApEc2LaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
@@ -160,8 +204,7 @@ Resources:
             - Fn::ImportValue: !Sub ${CoreStack}-ApSGID
           SubnetId:
             Fn::ImportValue: !Sub ${CoreStack}-SubnetA
-      IamInstanceProfile:
-        Fn::ImportValue: !Sub ${CoreStack}-ApInstanceProfile
+      IamInstanceProfile: !Ref ApInstanceProfile
   ApInstanceC:
     Type: AWS::EC2::Instance
     Condition: UseProdEnv
@@ -176,8 +219,7 @@ Resources:
             - Fn::ImportValue: !Sub ${CoreStack}-ApSGID
           SubnetId:
             Fn::ImportValue: !Sub ${CoreStack}-SubnetC
-      IamInstanceProfile:
-        Fn::ImportValue: !Sub ${CoreStack}-ApInstanceProfile
+      IamInstanceProfile: !Ref ApInstanceProfile
   ApInstanceD:
     Type: AWS::EC2::Instance
     Condition: UseProdEnv
@@ -192,8 +234,7 @@ Resources:
             - Fn::ImportValue: !Sub ${CoreStack}-ApSGID
           SubnetId:
             Fn::ImportValue: !Sub ${CoreStack}-SubnetD
-      IamInstanceProfile:
-        Fn::ImportValue: !Sub ${CoreStack}-ApInstanceProfile
+      IamInstanceProfile: !Ref ApInstanceProfile
 
   # Application Load Balancing
   ApALBTarget:
