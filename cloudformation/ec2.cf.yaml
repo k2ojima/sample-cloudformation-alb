@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: EC2 definition of ALB template
+Description: EC2 and ALB Settings
 Metadata:
   Author:
     Description: xentok
@@ -11,20 +11,10 @@ Parameters:
     Default: test
     AllowedValues: [test, stage, prod]
     ConstraintDescription: must be one of test, stage, prod
-  WebsiteDocumentRoot:
-    Description: The website's document root.
-    Type: String
-    Default: /var/www/html/public
   # stack names
-  CoreStack:
-    Description: The core stack name.
+  NetStack:
+    Description: The network stack name.
     Type: String
-    Default: CoreApStack
-  CWStack:
-    Description: The cloudwatch stack name.
-    Type: String
-    Default: CWApStack
-
   KeyName:
     Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
     Type: AWS::EC2::KeyPair::KeyName
@@ -45,16 +35,11 @@ Parameters:
           d2.xlarge, d2.2xlarge, d2.4xlarge, d2.8xlarge]
     ConstraintDescription: must be a valid EC2 instance type.
   LatestAmiId:
-    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
-    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
-  DbRootPassword:
-    Type: String
-    Description: DB root password (8-32 alphanumerics)
-    MinLength: '8'
-    MaxLength: '32'
-    AllowedPattern: "[a-zA-Z][a-zA-Z0-9]*"
+    Type: AWS::EC2::Image::Id
 
 Conditions:
+  UseStageEnv:
+    !Equals [!Ref EnvType, stage]
   UseProdEnv:
     !Equals [!Ref EnvType, prod]
 
@@ -83,10 +68,10 @@ Resources:
         Version: '2012-10-17'
         Statement:
           - Effect: Allow
-            Principal: 
-              Service: 
+            Principal:
+              Service:
                 - ec2.amazonaws.com
-            Action: 
+            Action:
               - sts:AssumeRole
       Path: /
       ManagedPolicyArns:
@@ -107,88 +92,11 @@ Resources:
   ApEc2LaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
-      LaunchTemplateName: sample-launch-template
+      LaunchTemplateName: !Sub ${AWS::StackName}-LaunchTemplate
       LaunchTemplateData:
         ImageId: !Ref LatestAmiId
         InstanceType: !Ref InstanceType
         KeyName: !Ref KeyName
-        UserData:
-          Fn::Base64:
-            Fn::Sub:
-              - |
-                #!/bin/bash -xe
-                exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
-
-                HOMEDIR=/home/ec2-user
-
-                timedatectl set-timezone Asia/Tokyo
-                yum update -y
-                amazon-linux-extras install lamp-mariadb10.2-php7.2
-                sudo yum install -y \
-                  git \
-                  httpd \
-                  mariadb-server \
-                  php \
-                  php-gd \
-                  php-mbstring \
-                  php-mysqlnd \
-                  php-xml \
-                  php-xmlrpc \
-                  ruby
-                sudo rpm -Uvh https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm
-
-                # aws cli
-                curl https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o awscliv2.zip
-                unzip awscliv2.zip
-                sudo ./aws/install
-
-                # CloudWatch Agent
-                /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a stop
-                /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c ssm:${CWAgentParameter} -s
-
-                # CodeDeploy Agent
-                cd $HOMEDIR
-                curl -O https://aws-codedeploy-ap-northeast-1.s3.amazonaws.com/latest/install
-                chmod +x ./install
-                ./install auto
-
-                # Configure Database
-                MYSQL_ROOT_PASSWORD=${DbRootPassword}
-                echo $MYSQL_ROOT_PASSWORD > $HOMEDIR/MYSQL_ROOT_PASSWORD
-                chown ec2-user $HOMEDIR/MYSQL_ROOT_PASSWORD
-                sudo systemctl start mariadb
-                sudo systemctl enable mariadb
-                mysql -u root <<EOF
-                UPDATE mysql.user SET Password=PASSWORD('$MYSQL_ROOT_PASSWORD') WHERE User='root';
-                DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
-                DELETE FROM mysql.user WHERE User='';
-                DROP DATABASE IF EXISTS test;
-                FLUSH PRIVILEGES;
-                EOF
-
-                # Configure Apache
-                sudo systemctl start httpd
-                sudo systemctl enable httpd
-                sudo usermod -a -G apache ec2-user
-                sudo chown -R ec2-user:apache /var/www
-                sudo chmod 2775 /var/www
-                find /var/www -type d -exec chmod 2775 {} \;
-                find /var/www -type f -exec chmod 0664 {} \;
-                sed -i -e 's@DocumentRoot "/var/www/html"@DocumentRoot "${WebsiteDocumentRoot}"@' /etc/httpd/conf/httpd.conf
-
-                # Setup Composer
-                ## Make swapfile
-                sudo dd if=/dev/zero of=/swapfile bs=1M count=1024
-                sudo chmod 600 /swapfile
-                sudo mkswap /swapfile
-                sudo swapon /swapfile
-                export COMPOSER_HOME="$HOME/.config/composer"
-                php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
-                sudo php composer-setup.php --install-dir=/usr/local/bin --filename=composer
-                rm composer-setup.php
-                composer global require hirak/prestissimo
-              - CWAgentParameter:
-                  Fn::ImportValue: !Sub ${CWStack}-CWAgentConfig
 
   # Instances
   ApInstanceA:
@@ -201,11 +109,12 @@ Resources:
         - DeviceIndex: '0'
           AssociatePublicIpAddress: true
           GroupSet:
-            - Fn::ImportValue: !Sub ${CoreStack}-ApSGID
+            - Fn::ImportValue: !Sub ${NetStack}-ApSGID
           SubnetId:
-            Fn::ImportValue: !Sub ${CoreStack}-SubnetA
+            Fn::ImportValue: !Sub ${NetStack}-SubnetA
       IamInstanceProfile: !Ref ApInstanceProfile
   ApInstanceC:
+  # ToDo : EnvType=stageを指定した時に2台構成にしたい
     Type: AWS::EC2::Instance
     Condition: UseProdEnv
     Properties:
@@ -216,9 +125,9 @@ Resources:
         - DeviceIndex: '0'
           AssociatePublicIpAddress: true
           GroupSet:
-            - Fn::ImportValue: !Sub ${CoreStack}-ApSGID
+            - Fn::ImportValue: !Sub ${NetStack}-ApSGID
           SubnetId:
-            Fn::ImportValue: !Sub ${CoreStack}-SubnetC
+            Fn::ImportValue: !Sub ${NetStack}-SubnetC
       IamInstanceProfile: !Ref ApInstanceProfile
   ApInstanceD:
     Type: AWS::EC2::Instance
@@ -231,21 +140,21 @@ Resources:
         - DeviceIndex: '0'
           AssociatePublicIpAddress: true
           GroupSet:
-            - Fn::ImportValue: !Sub ${CoreStack}-ApSGID
+            - Fn::ImportValue: !Sub ${NetStack}-ApSGID
           SubnetId:
-            Fn::ImportValue: !Sub ${CoreStack}-SubnetD
+            Fn::ImportValue: !Sub ${NetStack}-SubnetD
       IamInstanceProfile: !Ref ApInstanceProfile
 
   # Application Load Balancing
   ApALBTarget:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: ApALBTarget
+      Name: !Sub ${AWS::StackName}-TargetGroup
       Port: 80
       Protocol: HTTP
       VpcId:
-        Fn::ImportValue: !Sub ${CoreStack}-VPC
-      HealthCheckPath: /index.php
+        Fn::ImportValue: !Sub ${NetStack}-VPC
+      HealthCheckPath: /
       Targets: !If [UseProdEnv, [
             {Id: !Ref ApInstanceA, Port: 80},
             {Id: !Ref ApInstanceC, Port: 80},
@@ -276,23 +185,23 @@ Resources:
           TargetGroupArn: !Ref ApALBTarget
       Certificates:
         - CertificateArn:
-            Fn::ImportValue: !Sub ${CoreStack}-ACM
+            Fn::ImportValue: !Sub ${NetStack}-ACM
       LoadBalancerArn: !Ref ApALB
       Port: 443
       Protocol: HTTPS
   ApALB:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
-      Name: ap-alb-test
+      Name: !Sub ${AWS::StackName}-ALB
       LoadBalancerAttributes:
         - Key: routing.http2.enabled
           Value: 'false'
       SecurityGroups:
-        - Fn::ImportValue: !Sub ${CoreStack}-ALBSG
+        - Fn::ImportValue: !Sub ${NetStack}-ALBSG
       Subnets:
-        - Fn::ImportValue: !Sub ${CoreStack}-SubnetA
-        - Fn::ImportValue: !Sub ${CoreStack}-SubnetC
-        - Fn::ImportValue: !Sub ${CoreStack}-SubnetD
+        - Fn::ImportValue: !Sub ${NetStack}-SubnetA
+        - Fn::ImportValue: !Sub ${NetStack}-SubnetC
+        - Fn::ImportValue: !Sub ${NetStack}-SubnetD
 
 Outputs:
   PublicIpA:

@@ -1,34 +1,13 @@
 # CloudFormation ALB Sample
-ALB template through CloudFormation.
+CloudFormationで記述されているALB × CloudWatch × CodePipelineの環境です。
 
-## Requirements
-AWS CLI
+ALB with CodePipeline template through CloudFormation.
 
-## Setup
-### Create stack
+## Table of contents (Japanese only)
 
-```bash
-$ aws cloudformation create-stack --stack-name CoreApStack --region ap-northeast-1 --capabilities CAPABILITY_IAM \
---template-body file://cloudformation/lamp-amazonlinux2/core.cf.yaml \
---parameters ParameterKey=SiteDomain,ParameterValue=example.com \
-&& \
-aws cloudformation create-stack --stack-name CWApStack --region ap-northeast-1 \
---template-body file://cloudformation/lamp-amazonlinux2/cloudwatch.cf.yaml \
---parameters ParameterKey=EnvType,ParameterValue=test
-&& \
-aws cloudformation create-stack --stack-name Ec2ApStack --region ap-northeast-1 \
---capabilities CAPABILITY_NAMED_IAM \
---template-body file://cloudformation/lamp-amazonlinux2/ec2.cf.yaml \
---parameters ParameterKey=EnvType,ParameterValue=test \
-	ParameterKey=DbRootPassword,ParameterValue=passw0rd
-&& \
-aws cloudformation create-stack --stack-name DeployStack --region ap-northeast-1 --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
---template-body file://cloudformation/lamp-amazonlinux2/deployments.cf.yaml \
---parameters ParameterKey=EnvType,ParameterValue=test \
-	ParameterKey=ArtifactBucketName,ParameterValue=sample-artifact-bucket \
-	ParameterKey=GitHubOwner,ParameterValue=owner \
-	ParameterKey=GitHubRepo,ParameterValue=sample-code \
-	ParameterKey=GitHubBranch,ParameterValue=staging \
-	ParameterKey=GitHubOAuthToken,ParameterValue=your_token \
-	ParameterKey=GitHubSecretToken,ParameterValue=your_token
-```
+1. [前提条件](docs/manual/pre-reqs.md)
+2. [初期環境構築](docs/manual/init.md)
+
+* 補足資料
+    * [スタック操作コマンド](docs/cli-command.md)
+    * [.envの設定項目](docs/manual/env-detail.md)

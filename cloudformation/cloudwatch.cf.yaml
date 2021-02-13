@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: CloudWatch settings for ALB template
+Description: CloudWatch Settings
 Metadata:
   Author:
     Description: xentok
@@ -17,29 +17,34 @@ Resources:
   MessagesLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub ${AWS::StackName}-${EnvType}/messages
+      LogGroupName: !Sub ${AWS::StackName}/messages
       RetentionInDays: 3
   CFnInitLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub ${AWS::StackName}-${EnvType}/cloud-init-output
+      LogGroupName: !Sub ${AWS::StackName}/cloud-init-output
       RetentionInDays: 3
   SSMAgentLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub ${AWS::StackName}-${EnvType}/amazon-ssm-agent
+      LogGroupName: !Sub ${AWS::StackName}/amazon-ssm-agent
       RetentionInDays: 3
   ApacheErrLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub ${AWS::StackName}-${EnvType}/httpd/error_log
+      LogGroupName: !Sub ${AWS::StackName}/httpd/error_log
+      RetentionInDays: 3
+  CDDeploymentsDetailLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub ${AWS::StackName}/codedeploy-agent-deployments
       RetentionInDays: 3
 
   # CloudWatch SSM Parameter
   CWAgentConfig:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub AmazonCloudWatch-${AWS::StackName}-config-${EnvType}
+      Name: !Sub AmazonCloudWatch-${AWS::StackName}-config
       Type: String
       Value: !Sub |
         {
@@ -62,6 +67,10 @@ Resources:
                   {
                     "file_path": "/var/log/httpd/error_log",
                     "log_group_name": "${ApacheErrLogGroup}"
+                  },
+                  {
+                    "file_path": "/opt/codedeploy-agent/deployment-root/deployment-logs/codedeploy-agent-deployments.log",
+                    "log_group_name": "${CDDeploymentsDetailLogGroup}"
                   }
                 ]
               }

@@ -1,1 +1,10 @@
 .DS_Store
+.env
+cloudformation/laravel.cf.yaml
+
+# ide setting
+.vscode
+.idea
+
+# packages
+vendor/

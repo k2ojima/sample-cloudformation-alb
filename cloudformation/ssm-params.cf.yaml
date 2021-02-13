@@ -1,0 +1,21 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: General SSM Parameters
+
+Parameters:
+  EnvType:
+    Description: Environment where the stacks are applied.
+    Type: String
+    Default: test
+    AllowedValues: [test, stage, prod]
+    ConstraintDescription: must be one of test, stage, prod
+  StackPrefix:
+    Type: String
+
+Resources:
+  DotenvConfig:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: envの内容
+      Name: !Sub ${StackPrefix}SSM-DotenvConfig-${EnvType}
+      Type: String
+      Value: "APP_ENV="

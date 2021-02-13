@@ -1,0 +1,235 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: EC2 provision setting（to configure AMI ID）
+Metadata:
+  Author:
+    Description: xentok
+
+Parameters:
+  EnvType:
+    Description: Environment where the stacks are applied.
+    Type: String
+    Default: test
+    AllowedValues: [test, stage, prod]
+    ConstraintDescription: must be one of test, stage, prod
+  WebsiteDocumentRoot:
+    Description: The website's document root.
+    Type: String
+  # stack names
+  CWStack:
+    Description: The cloudwatch stack name.
+    Type: String
+  NetStack:
+    Description: The network stack name.
+    Type: String
+
+  KeyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: test-web
+    ConstraintDescription: must be the name of an existing EC2 KeyPair.
+  InstanceType:
+    Description: WebServer EC2 instance type
+    Type: String
+    Default: t2.micro
+    AllowedValues: [t2.nano, t2.micro, t2.small, t2.medium, t2.large, t2.xlarge, t2.2xlarge,
+          t3.nano, t3.micro, t3.small, t3.medium, t3.large, t3.xlarge, t3.2xlarge,
+          m4.large, m4.xlarge, m4.2xlarge, m4.4xlarge, m4.10xlarge,
+          m5.large, m5.xlarge, m5.2xlarge, m5.4xlarge,
+          c5.large, c5.xlarge, c5.2xlarge, c5.4xlarge, c5.9xlarge,
+          g3.8xlarge,
+          r5.large, r5.xlarge, r5.2xlarge, r5.4xlarge, r3.12xlarge,
+          i3.xlarge, i3.2xlarge, i3.4xlarge, i3.8xlarge,
+          d2.xlarge, d2.2xlarge, d2.4xlarge, d2.8xlarge]
+    ConstraintDescription: must be a valid EC2 instance type.
+  ProvisionalAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+  CreateDatabase:
+    Type: String
+    Description: whether to create database or not
+    AllowedPattern: "(true|false)"
+  DbRootPassword:
+    Type: String
+    Description: DB root password (8-32 alphanumerics)
+    MinLength: '8'
+    MaxLength: '32'
+    AllowedPattern: "[a-zA-Z0-9]*"
+  DbName:
+    Type: String
+    Description: DB name
+  DbCharSet:
+    Type: String
+    Description: DB Default character set
+  DbCollate:
+    Type: String
+    Description: DB name
+
+Resources:
+  # IAM Policy
+  LoggingPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub ${AWS::StackName}-${AWS::Region}-LoggingTemp
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+              - logs:DescribeLogStreams
+            Resource: arn:aws:logs:*:*:*
+
+  # IAM Role
+  ApInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - !Ref LoggingPolicy
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+
+  # Instance profile
+  ApInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref ApInstanceRole
+    DependsOn: ApInstanceRole
+
+  # initial ec2 template with user data
+  InitEc2LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: sample-launch-template
+      LaunchTemplateData:
+        ImageId: !Ref ProvisionalAmiId
+        InstanceType: !Ref InstanceType
+        KeyName: !Ref KeyName
+        UserData:
+          Fn::Base64:
+            Fn::Sub:
+              - |
+                #!/bin/bash -xe
+                exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+
+                HOMEDIR=/home/ec2-user
+                ApacheConfFile=/etc/httpd/conf/httpd.conf
+
+                sudo timedatectl set-timezone Asia/Tokyo
+
+                # install deps
+                sudo yum update -y
+                sudo amazon-linux-extras enable epel
+                sudo yum install -y epel-release
+                sudo rpm -Uvh https://rpms.remirepo.net/enterprise/remi-release-7.rpm
+                sudo yum install -y \
+                  git \
+                  httpd \
+                  mariadb-server \
+                  ruby
+                # enable php-fpm
+                sudo yum install -y --enablerepo=remi php73 \
+                  php73-php-fpm \
+                  php73-php-gd \
+                  php73-php-mbstring \
+                  php73-php-mysqlnd \
+                  php73-php-xml \
+                  php73-php-xmlrpc
+                sudo ln -sf /usr/bin/php73 /usr/bin/php
+                systemctl start php73-php-fpm
+                systemctl enable php73-php-fpm
+
+                # aws cli
+                curl https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o awscliv2.zip
+                unzip awscliv2.zip
+                sudo ./aws/install
+
+                # CloudWatch Agent
+                sudo rpm -Uvh https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm
+                /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a stop
+                /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c ssm:${CWAgentParameter} -s
+
+                # CodeDeploy Agent
+                cd $HOMEDIR
+                curl -O https://aws-codedeploy-ap-northeast-1.s3.amazonaws.com/latest/install
+                chmod +x ./install
+                ./install auto
+
+                # Configure Database
+                if "${CreateDatabase}"; then
+                  MYSQL_ROOT_PASSWORD=${DbRootPassword}
+                  sudo systemctl start mariadb
+                  sudo systemctl enable mariadb
+                  mysql -u root <<EOF
+                  UPDATE mysql.user SET Password=PASSWORD('$MYSQL_ROOT_PASSWORD') WHERE User='root';
+                  DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
+                  DELETE FROM mysql.user WHERE User='';
+                  DROP DATABASE IF EXISTS test;
+                  CREATE DATABASE ${DbName} DEFAULT CHARACTER SET ${DbCharSet} COLLATE ${DbCollate};
+                  FLUSH PRIVILEGES;
+                EOF
+                fi
+
+                # Configure Apache
+                ## Replace Apache config
+                [[ -d ${WebsiteDocumentRoot} ]] || sudo mkdir -p ${WebsiteDocumentRoot}
+                sudo sed -i -e 's@DocumentRoot "/var/www/html"@DocumentRoot "${WebsiteDocumentRoot}"@' $ApacheConfFile
+                sudo sed -i -r -e 's@User (apache|root|daemon)$@User ec2-user@' $ApacheConfFile
+                sudo sed -i -r -e 's@Group (root|daemon)$@Group apache@' $ApacheConfFile
+                ## Start Apache
+                sudo systemctl start httpd
+                sudo systemctl enable httpd
+                sudo usermod -a -G apache ec2-user
+                sudo chown -R ec2-user:apache /var/www
+                sudo chmod 2775 /var/www
+                find /var/www -type d -exec chmod 2775 {} \;
+                find /var/www -type f -exec chmod 0664 {} \;
+
+                # Setup Composer
+                ## Make swapfile
+                sudo dd if=/dev/zero of=/swapfile bs=1M count=1024
+                sudo chmod 600 /swapfile
+                sudo mkswap /swapfile
+                sudo swapon /swapfile
+                export COMPOSER_HOME="$HOME/.config/composer"
+                php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
+                php composer-setup.php --install-dir=/usr/local/bin --filename=composer
+                rm composer-setup.php
+                composer global require hirak/prestissimo
+
+                # Node.js
+                # curl -o- https://raw.githubusercontent.com/creationix/nvm/v0.32.1/install.sh | bash
+                # export NVM_DIR="$HOME/.nvm"
+                # [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+                # nvm install node
+              - CWAgentParameter:
+                  Fn::ImportValue: !Sub ${CWStack}-${EnvType}-CWAgentConfig
+
+  # Instance
+  ProvisionalInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      IamInstanceProfile: !Ref ApInstanceProfile
+      LaunchTemplate:
+        LaunchTemplateId: !Ref InitEc2LaunchTemplate
+        Version: !GetAtt InitEc2LaunchTemplate.LatestVersionNumber
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          AssociatePublicIpAddress: true
+          GroupSet:
+            - Fn::ImportValue: !Sub ${NetStack}-ApSGID
+          SubnetId:
+            Fn::ImportValue: !Sub ${NetStack}-SubnetA

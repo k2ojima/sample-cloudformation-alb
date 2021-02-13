@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Network, SecurityGroup, ACM, IAM settings for ALB template
+Description: Network, ACM and Security Group Settings
 Metadata:
   Author:
     Description: xentok
@@ -21,7 +21,7 @@ Resources:
   ApVPC:
     Type: AWS::EC2::VPC
     Properties:
-      CidrBlock: 10.11.0.0/20
+      CidrBlock: 10.11.0.0/16
       EnableDnsHostnames: true
 
   # Internet Gateway
@@ -40,18 +40,6 @@ Resources:
       GroupDescription: Target instance Security group
       VpcId: !Ref ApVPC
       SecurityGroupIngress:
-        - CidrIp: !GetAtt ApVPC.CidrBlock
-          IpProtocol: tcp
-          FromPort: 22
-          ToPort: 22
-        - CidrIp: !GetAtt ApVPC.CidrBlock
-          IpProtocol: tcp
-          FromPort: 80
-          ToPort: 80
-        - CidrIp: !GetAtt ApVPC.CidrBlock
-          IpProtocol: tcp
-          FromPort: 443
-          ToPort: 443
         - SourceSecurityGroupId: !Ref ALBSG
           IpProtocol: tcp
           FromPort: 0
@@ -77,19 +65,19 @@ Resources:
     Type: AWS::EC2::Subnet
     Properties:
       AvailabilityZone: ap-northeast-1a
-      CidrBlock: 10.11.1.0/24
+      CidrBlock: 10.11.21.0/24
       VpcId: !Ref ApVPC
   ApSubnetC:
     Type: AWS::EC2::Subnet
     Properties:
       AvailabilityZone: ap-northeast-1c
-      CidrBlock: 10.11.2.0/24
+      CidrBlock: 10.11.22.0/24
       VpcId: !Ref ApVPC
   ApSubnetD:
     Type: AWS::EC2::Subnet
     Properties:
       AvailabilityZone: ap-northeast-1d
-      CidrBlock: 10.11.3.0/24
+      CidrBlock: 10.11.23.0/24
       VpcId: !Ref ApVPC
 
   # Routing

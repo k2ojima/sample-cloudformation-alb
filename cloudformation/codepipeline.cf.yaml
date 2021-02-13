@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Deployments setting of ALB template
+Description: CodePipeline Settings
 Metadata:
   Author:
     Description: xentok
@@ -11,6 +11,9 @@ Parameters:
     Default: test
     AllowedValues: [test, stage, prod]
     ConstraintDescription: must be one of test, stage, prod
+  EC2Stack:
+    Description: EC2 stack name.
+    Type: String
   ArtifactBucketName:
     Description: Name of S3 Bucket for artifact
     Type: String
@@ -98,19 +101,19 @@ Resources:
   DeployServerApp:
     Type: AWS::CodeDeploy::Application
     Properties:
-      ApplicationName: !Sub ${AWS::StackName}-App-${EnvType}
+      ApplicationName: !Sub ${AWS::StackName}-App
       ComputePlatform: Server
   # CodeDeploy Group
   DeployEC2Group:
     Type: AWS::CodeDeploy::DeploymentGroup
     Properties:
       ApplicationName: !Ref DeployServerApp
-      DeploymentGroupName: !Sub ${AWS::StackName}-DeployGrp-${EnvType}
+      DeploymentGroupName: !Sub ${AWS::StackName}-DeployGrp
       ServiceRoleArn: !GetAtt CodeDeployServerRole.Arn
       Ec2TagFilters:
         - Type: KEY_AND_VALUE
           Key: aws:cloudformation:stack-name
-          Value: Ec2ApStack
+          Value: !Ref EC2Stack
 
   # CodePipeline Webhook
   PipelineDeployWebhook:
@@ -121,7 +124,7 @@ Resources:
         SecretToken: !Ref GitHubSecretToken
       Filters:
         - JsonPath: $.ref
-          MatchEquals: refs/heads/master
+          MatchEquals: refs/heads/{Branch}
       TargetAction: !Sub ${AWS::StackName}-SourceAction
       TargetPipeline: !Ref DeployServerPipeline
       TargetPipelineVersion: !GetAtt DeployServerPipeline.Version
